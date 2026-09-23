@@ -10,7 +10,7 @@ ENGINE_REPOS = {
 }
 ENGINE_VERSIONS = {
     2: "2.0.4",
-    3: "3.0.1",
+    3: "3.0.2",
 }
 
 BASE_WEIGHTS = {
