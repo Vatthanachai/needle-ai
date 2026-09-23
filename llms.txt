@@ -225,6 +225,8 @@ from needle.environments import smart_home
 smart_home.agent.complete("dim the study lights to 30 percent")
 ```
 
+`run_tests()` returns `True` when at least `round(0.9 * len(TEST_CASES))` cases pass - 29 of the shipped 32 - and no `critical` case fails; `min_confidence` treats a call below the threshold as a refusal. A suite scores the model's output, not the harness, so a red suite usually reports the model's fit to the tool surface rather than a defect in the code that scores it (rule out a reply shape the harness does not expect before blaming the model). The threshold and the `critical` effect are pinned by engine-free tests in `tests/test_environments.py`. The shipped base model does not pass all six suites on engine 2.0.4 at the default gate: five fall short, missing calls the query did state and inventing values it did not.
+
 Adapt by swapping the Literal values for your own and keeping the shapes: closed sets as enums, bounded numbers, verbatim copy for free text, five tools or fewer.
 
 ## CLI summary
