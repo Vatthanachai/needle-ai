@@ -1,5 +1,4 @@
 import os
-import pickle
 
 import pytest
 
@@ -47,6 +46,7 @@ def tiny_checkpoint(tmp_path_factory):
     import jax
     import jax.numpy as jnp
     from needle.model.architecture import SimpleAttentionNetwork, TransformerConfig
+    from needle.model.checkpoints import write_checkpoint
 
     config = TransformerConfig(
         vocab_size=8192, out_vocab=8192, d_model=64, num_heads=4, num_kv_heads=2,
@@ -58,20 +58,14 @@ def tiny_checkpoint(tmp_path_factory):
     params = model.init(jax.random.PRNGKey(0), jnp.ones((1, 8), jnp.int32))["params"]
     params = jax.tree_util.tree_map(lambda x: np.asarray(x), params)
 
-    path = tmp_path_factory.mktemp("ckpt") / "tiny.pkl"
-    with open(path, "wb") as handle:
-        pickle.dump({"format_version": 2, "params": params,
-                     "config": dict(vars(config))}, handle)
+    path = tmp_path_factory.mktemp("ckpt") / "tiny.safetensors"
+    write_checkpoint(path, {"format_version": 2, "params": params, "config": dict(vars(config))})
     return str(path)
 
 
 @pytest.fixture(scope="session")
-def tiny_checkpoint_safetensors(tiny_checkpoint, tmp_path_factory):
-    from needle.model.checkpoints import read_checkpoint, write_checkpoint
-
-    path = tmp_path_factory.mktemp("ckpt") / "tiny.safetensors"
-    write_checkpoint(path, read_checkpoint(tiny_checkpoint))
-    return str(path)
+def tiny_checkpoint_safetensors(tiny_checkpoint):
+    return tiny_checkpoint
 
 
 @pytest.fixture(scope="session")

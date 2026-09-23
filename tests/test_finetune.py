@@ -1,6 +1,5 @@
 import json
 import os
-import pickle
 import types
 
 import pytest
@@ -36,7 +35,7 @@ def test_finetune_writes_adapter(tiny_checkpoint, tmp_path):
 
     data = tmp_path / "data.jsonl"
     _write_data(data)
-    out = tmp_path / "adapter.pkl"
+    out = tmp_path / "adapter.safetensors"
     progress = []
     finetune_local(_finetune_args(data, tiny_checkpoint, out, tmp_path / "ck"),
                    progress=progress.append)
@@ -44,8 +43,8 @@ def test_finetune_writes_adapter(tiny_checkpoint, tmp_path):
     assert any("loss" in m for m in progress)
     assert any("CQ W4 STE + A8" in m for m in progress)
     assert out.exists()
-    with open(out, "rb") as handle:
-        adapter = pickle.load(handle)
+    from needle.model.checkpoints import read_adapter
+    adapter = read_adapter(str(out))
     assert adapter["rank"] == 4
     assert abs(adapter["scale"] - 2.0) < 1e-6
     assert adapter["base"] == tiny_checkpoint
@@ -61,7 +60,7 @@ def test_finetune_then_build_merges(tiny_checkpoint, tmp_path, published_base):
 
     data = tmp_path / "data.jsonl"
     _write_data(data)
-    adapter = tmp_path / "adapter.pkl"
+    adapter = tmp_path / "adapter.safetensors"
     finetune_local(_finetune_args(data, tiny_checkpoint, adapter, tmp_path / "ck"))
 
     out = str(tmp_path / "merged.cact")
@@ -115,14 +114,14 @@ def test_finetune_adapter_records_realized_seed(tiny_checkpoint, tmp_path):
         for row in rows:
             handle.write(json.dumps(row) + "\n")
 
-    out = tmp_path / "seeded-adapter.pkl"
+    out = tmp_path / "seeded-adapter.safetensors"
     args = _finetune_args(data, tiny_checkpoint, out, tmp_path / "ck")
     args.seed = 17
     args.val_split = 0.0
     finetune_local(args)
 
-    with out.open("rb") as handle:
-        adapter = pickle.load(handle)
+    from needle.model.checkpoints import read_adapter
+    adapter = read_adapter(str(out))
     assert adapter["seed"] == 17
 
 

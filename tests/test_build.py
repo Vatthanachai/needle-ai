@@ -28,29 +28,26 @@ def test_build_exports_loadable_cact(tiny_checkpoint, tmp_path, published_base):
 
 
 def test_load_checkpoint_drops_the_mtp_block(tiny_checkpoint, tmp_path):
-    import pickle
     import numpy as np
     from needle.model.run import load_checkpoint
+    from needle.model.checkpoints import read_checkpoint, write_checkpoint
 
-    with open(tiny_checkpoint, "rb") as handle:
-        checkpoint = pickle.load(handle)
+    checkpoint = read_checkpoint(tiny_checkpoint)
     checkpoint["params"]["mtp_combine"] = {"kernel": np.ones((4, 4), np.float32)}
-    path = tmp_path / "with_mtp.pkl"
-    with open(path, "wb") as handle:
-        pickle.dump(checkpoint, handle)
+    path = tmp_path / "with_mtp.safetensors"
+    write_checkpoint(path, checkpoint)
     params, _ = load_checkpoint(str(path))
     assert "mtp_combine" not in params
 
 
 def test_export_round_trips_a_projection(tiny_checkpoint, tmp_path):
-    import pickle
     import numpy as np
     from needle.model.export import write_export, read_export
     from needle.model.architecture import TransformerConfig, effective_kv_window
     from needle.model.tokenizer import get_tokenizer
+    from needle.model.checkpoints import read_checkpoint
 
-    with open(tiny_checkpoint, "rb") as handle:
-        ckpt = pickle.load(handle)
+    ckpt = read_checkpoint(tiny_checkpoint)
     params, config = ckpt["params"], TransformerConfig(**ckpt["config"])
 
     out = str(tmp_path / "rt.cact")

@@ -185,7 +185,7 @@ agent = needle.Needle(weights="my.cact", tools=[...])
 agent.run("...")
 ```
 
-Options: `finetune --lora-rank 16 --lora-alpha 32 --lr 1e-4 --batch-size 16 --max-len 1024 --val-split 0.1 --checkpoint <base.safetensors or .pkl> --checkpoint-dir <dir> --out <adapter.safetensors or .pkl> --generate <n> --model <id> --workers <n>`; `--model` defaults to `deepseek/deepseek-flash-latest`, `--workers` defaults to `8`, and `--checkpoint-dir` defaults to `checkpoints`. `--generate` synthesizes extra examples through the configured OpenRouter endpoint before training. `build --bits 2|4 --upload` (with `NEEDLE_HF_REPO=<you>/<model>`).
+Options: `finetune --lora-rank 16 --lora-alpha 32 --lr 1e-4 --batch-size 16 --max-len 1024 --val-split 0.1 --checkpoint <base.safetensors> --checkpoint-dir <dir> --out <adapter.safetensors> --generate <n> --model <id> --workers <n>`; `--model` defaults to `deepseek/deepseek-flash-latest`, `--workers` defaults to `8`, and `--checkpoint-dir` defaults to `checkpoints`. `--generate` synthesizes extra examples through the configured OpenRouter endpoint before training. `build --bits 2|4 --upload` (with `NEEDLE_HF_REPO=<you>/<model>`).
 
 ## Platform (hosted fine-tuning)
 
@@ -229,7 +229,7 @@ Adapt by swapping the Literal values for your own and keeping the shapes: closed
 
 ## CLI summary
 
-- `needle run --checkpoint <base.safetensors or .pkl> --query "..." --tools tools.json` - JAX reference inference from a checkpoint (dev path; normal inference is the Python `Needle` API above).
+- `needle run --checkpoint <base.safetensors> --query "..." --tools tools.json` - JAX reference inference from a checkpoint (dev path; normal inference is the Python `Needle` API above).
 - `needle generate-data` / `needle finetune` / `needle build [checkpoint] [--lora adapter] [--layers N] [--platform <folder>] [--out <path>]` - the fine-tuning pipeline; fine-tuning runs at the full 20 layers, `build` merges the adapter, slices the `--layers` rung (default 20), exports at 4 bits, and fetches the published `needle3.cact` on every run (without an adapter at full depth it ships that published 2-bit archive as is). `--platform` also downloads that platform's engine and header and makes `--out` a folder holding them plus `needle3.cact`.
 - `needle playground` - the browser UI locally (hosted at https://cactuscompute.com/needle).
 - `needle fetch [--platform-tag <tag>] [--out <dir>]` - pre-download the inference engine for this machine (or another platform) into the cache; prints the path. For air-gapped devices, also see `NEEDLE3_LIB_PATH` and `HF_HUB_OFFLINE` at https://cactuscompute.com/blog/needle-python-docs.
@@ -242,8 +242,8 @@ Adapt by swapping the Literal values for your own and keeping the shapes: closed
 - Do not read `arguments` keys that were not evidenced in the input; optional fields may be absent.
 - Do not create one `Needle` per turn for a conversation; reuse the instance so context carries. New tools = new instance.
 - `import needle` does not import JAX; only `needle finetune`/`build` do.
-- `weights=` expects a `.cact` (from `needle build`), not a `.safetensors` or `.pkl` checkpoint. `Needle(tools=...)` runs the base Needle 3 archive (fetched once, cached next to the engine); pass `generation=2` for the embedded Needle 2 engine.
-- Checkpoints and adapters are `.safetensors`; pickle checkpoints still load. The base is `checkpoints/needle3.safetensors` (20 layers); `needle build --layers N` exports any rung from 2 to 20 of it.
+- `weights=` expects a `.cact` (from `needle build`), not a `.safetensors` checkpoint. `Needle(tools=...)` runs the base Needle 3 archive (fetched once, cached next to the engine); pass `generation=2` for the embedded Needle 2 engine.
+- Checkpoints and adapters must be `.safetensors`; pickle (`.pkl`) is not supported and will raise a `ValueError`. The base is `checkpoints/needle3.safetensors` (20 layers); `needle build --layers N` exports any rung from 2 to 20 of it.
 - The engine cannot unload weights: once a tuned `.cact` is bound, constructing or calling a base-model agent raises instead of silently answering with those weights. Construct agents that want the base model before any tuned one, or run them in separate processes.
 
 ## Telemetry

@@ -39,7 +39,7 @@ def _download_target(spec):
     name = spec[:-5] if spec.endswith(".cact") else spec
     if name in ("needle2", "needle3"):
         return "base", int(name[-1])
-    if spec.endswith((".safetensors", ".pkl")):
+    if spec.endswith(".safetensors"):
         return "checkpoint", spec
     raise SystemExit(
         f"unknown download {spec!r}: pass needle3 (base weights), needle3.safetensors "
@@ -175,7 +175,7 @@ def main():
                    help="Concurrent OpenRouter requests when generating (default: 8)")
     p.add_argument("--checkpoint-dir", type=str, default="checkpoints")
     p.add_argument("--out", type=str, default=None,
-                   help="Output adapter path (.safetensors, or .pkl)")
+                   help="Output adapter path (.safetensors)")
 
     p = sub.add_parser("generate-data")
     p.add_argument("--tools", type=str, default=None, help="Tool schemas JSON to seed generation")
@@ -189,7 +189,7 @@ def main():
 
     p = sub.add_parser("build")
     p.add_argument("checkpoint", type=str, nargs="?", default=None,
-                   help="Base checkpoint (.safetensors or .pkl); defaults to the adapter's "
+                   help="Base checkpoint (.safetensors); defaults to the adapter's "
                         "base, else the Needle 3 base (auto-downloads)")
     p.add_argument("--lora", type=str, default=None, help="LoRA adapter to merge before export")
     p.add_argument("--out", type=str, default=None, help="Output .cact path")
