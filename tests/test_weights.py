@@ -291,3 +291,49 @@ def test_platform_tuned_archive_keeps_confidence(engine, tmp_path, fake_cact):
     with pytest.warns(UserWarning, match="confidence as None"):
         uncalibrated = needle.Needle(tools="[]", weights=str(tmp_path / "local.cact"))
     assert uncalibrated.complete("hello").get("confidence", "kept") is None
+
+
+def test_stateless_agent_resets_before_every_query(engine):
+    import needle
+
+    agent = needle.Needle(tools="[]", generation=3, stateless=True)
+    agent.complete("one")
+    agent.complete("two")
+    resets = [c for c in engine if c == "reset"]
+    assert len(resets) == 2
+
+
+def test_unreset_queries_warn_once(engine):
+    import needle
+
+    agent = needle.Needle(tools="[]", generation=3)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        for _ in range(needle.UNRESET_TURNS):
+            agent.complete("q")
+    with pytest.warns(UserWarning, match="without reset"):
+        agent.complete("q")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        agent.complete("q")
+        agent.reset()
+        for _ in range(needle.UNRESET_TURNS):
+            agent.complete("q")
+
+
+def test_tool_result_turns_do_not_count_as_queries(engine):
+    import needle
+
+    calls = []
+
+    @needle.tool
+    def ping(x: str):
+        "Ping."
+        calls.append(x)
+        return {"ok": True}
+
+    agent = needle.Needle(tools=[ping], generation=3)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        for _ in range(needle.UNRESET_TURNS):
+            agent.run("go")

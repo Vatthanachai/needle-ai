@@ -21,6 +21,8 @@ class ExtractionValidationError(ValueError):
     """The engine produced structured values that are not grounded in the input."""
 
 
+UNRESET_TURNS = 4
+
 _CACT_GENERATIONS = {
     0x05E12A83: 2,
     0x05E12A84: 3,
@@ -133,10 +135,36 @@ def _load_base(lib, generation):
     _active.pop(generation, None)
 
 
+def _load_cdll(generation):
+    """Load the engine, retrying with the other libc build if the first is wrong.
+
+    A musl system that reports itself as glibc (or the reverse) otherwise fails
+    at load with a missing symbol such as strtoll_l.
+    """
+    path = _library_path(generation)
+    try:
+        return ctypes.CDLL(path)
+    except OSError as first:
+        from .agent import fetch
+
+        other = fetch.other_libc_tag()
+        if other is None:
+            raise
+        try:
+            alt = fetch.fetch_library(dest_dir=os.path.dirname(path) or ".",
+                                      tag=other, generation=generation)
+            handle = ctypes.CDLL(alt)
+        except Exception:
+            raise first from None
+        warnings.warn(f"the {fetch._platform_tag()} engine did not load ({first}); "
+                      f"using the {other} build instead", stacklevel=3)
+        return handle
+
+
 def _lib(generation=2):
     generation = int(generation)
     if generation not in _lib_handles:
-        lib = ctypes.CDLL(_library_path(generation))
+        lib = _load_cdll(generation)
         lib.needle_init.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p]
         lib.needle_init.restype = ctypes.c_int
         lib.needle_complete.argtypes = [
@@ -156,8 +184,10 @@ def _lib(generation=2):
 
 class Needle:
     def __init__(self, tools=None, system=None, weights=None, tool_index_path=None, buffer_size=65536,
-                 auto_date=True, generation=None):
+                 auto_date=True, generation=None, stateless=False):
         self._functions = {}
+        self._stateless = bool(stateless)
+        self._turns = 0
         self._weights = os.fspath(weights) if weights is not None else None
         self._tuned = self._weights is not None
         if self._tuned:
@@ -233,7 +263,19 @@ class Needle:
 
     def complete(self, text: str = "", max_new_tokens: int = 512) -> dict:
         _track("complete", self._track_props())
+        if self._stateless:
+            self.reset()
+        self._count_query()
         return self._complete(text, max_new_tokens)
+
+    def _count_query(self):
+        self._turns += 1
+        if self._turns == UNRESET_TURNS + 1:
+            warnings.warn(
+                f"{UNRESET_TURNS} queries on this agent without reset(): every turn stays in "
+                "the conversation, so unrelated queries lose accuracy and confidence. "
+                "Call reset() between independent queries, or construct with stateless=True",
+                stacklevel=3)
 
     def _complete(self, text: str, max_new_tokens: int = 512,
                   ground: bool = True) -> dict:
@@ -282,6 +324,9 @@ class Needle:
     def run(self, query: str = "", max_steps: int = 8,
             max_new_tokens: int = 512, strict: bool = True) -> dict:
         _track("run", self._track_props())
+        if self._stateless:
+            self.reset()
+        self._count_query()
         response = self._complete(query, max_new_tokens)
         executed = []
         for _ in range(max_steps):
@@ -322,6 +367,7 @@ class Needle:
 
     def reset(self):
         self._bind()
+        self._turns = 0
         if self._worker is not None:
             self._worker.reset()
         else:

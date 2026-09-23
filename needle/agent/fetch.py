@@ -1,5 +1,6 @@
 import os
 import platform
+import sysconfig
 import sys
 import zipfile
 
@@ -45,16 +46,31 @@ def _lib_name():
 
 
 def _is_musl():
+    """True on a musl system (Alpine and friends).
+
+    platform.libc_ver() scans the interpreter binary and reports glibc on some
+    musl builds, so the loader and the filesystem are asked first.
+    """
     if sys.platform != "linux":
-        return False
-    libc, _ = platform.libc_ver()
-    if libc:
         return False
     try:
         with open("/proc/self/maps", "rb") as maps:
-            return b"musl" in maps.read()
+            blob = maps.read()
+        if b"musl" in blob:
+            return True
+        if b"/libc.so.6" in blob or b"/ld-linux" in blob:
+            return False
     except OSError:
+        pass
+    import glob
+    if glob.glob("/lib/ld-musl-*.so.1"):
         return True
+    if glob.glob("/lib*/libc.so.6") or glob.glob("/lib/*-linux-gnu/libc.so.6"):
+        return False
+    if "musl" in (sysconfig.get_config_var("HOST_GNU_TYPE") or ""):
+        return True
+    libc, _ = platform.libc_ver()
+    return not libc
 
 
 def _platform_tag():
@@ -67,6 +83,16 @@ def _platform_tag():
     arch = "aarch64" if machine in ("aarch64", "arm64") else "x86_64"
     family = "musllinux_1_2_" if _is_musl() else "manylinux2014_"
     return family + arch
+
+
+def other_libc_tag():
+    """The tag for the other Linux libc family, or None off Linux."""
+    tag = _platform_tag()
+    if tag.startswith("manylinux2014_"):
+        return tag.replace("manylinux2014_", "musllinux_1_2_")
+    if tag.startswith("musllinux_1_2_"):
+        return tag.replace("musllinux_1_2_", "manylinux2014_")
+    return None
 
 
 def engine_repo(generation=2):

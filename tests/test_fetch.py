@@ -1,3 +1,7 @@
+import sys
+
+import pytest
+
 def test_lib_path_env_override(tmp_path, monkeypatch):
     import needle
 
@@ -157,3 +161,70 @@ def test_engine_gate_honours_the_library_override(tmp_path, monkeypatch):
 
     monkeypatch.setenv("NEEDLE3_LIB_PATH", str(tmp_path / "gone"))
     assert not _engine_available()
+
+
+def test_musl_detected_when_libc_ver_claims_glibc(monkeypatch, tmp_path):
+    import platform
+    from needle.agent import fetch
+
+    monkeypatch.setattr(platform, "libc_ver", lambda *a, **k: ("glibc", "2.9"))
+    monkeypatch.setattr(sys, "platform", "linux")
+    maps = tmp_path / "maps"
+    maps.write_bytes(b"7f0000000000-7f0000001000 r-xp /lib/ld-musl-x86_64.so.1\n")
+    real_open = open
+    monkeypatch.setattr("builtins.open",
+                        lambda p, *a, **k: real_open(maps, *a, **k) if p == "/proc/self/maps"
+                        else real_open(p, *a, **k))
+    assert fetch._is_musl() is True
+
+
+def test_glibc_detected_from_maps(monkeypatch, tmp_path):
+    import platform
+    from needle.agent import fetch
+
+    monkeypatch.setattr(platform, "libc_ver", lambda *a, **k: ("", ""))
+    monkeypatch.setattr(sys, "platform", "linux")
+    maps = tmp_path / "maps"
+    maps.write_bytes(b"7f0000000000-7f0000001000 r-xp /usr/lib/x86_64-linux-gnu/libc.so.6\n")
+    real_open = open
+    monkeypatch.setattr("builtins.open",
+                        lambda p, *a, **k: real_open(maps, *a, **k) if p == "/proc/self/maps"
+                        else real_open(p, *a, **k))
+    assert fetch._is_musl() is False
+
+
+def test_other_libc_tag_swaps_families(monkeypatch):
+    from needle.agent import fetch
+
+    monkeypatch.setattr(fetch, "_platform_tag", lambda: "manylinux2014_aarch64")
+    assert fetch.other_libc_tag() == "musllinux_1_2_aarch64"
+    monkeypatch.setattr(fetch, "_platform_tag", lambda: "musllinux_1_2_x86_64")
+    assert fetch.other_libc_tag() == "manylinux2014_x86_64"
+    monkeypatch.setattr(fetch, "_platform_tag", lambda: "macosx_11_0_arm64")
+    assert fetch.other_libc_tag() is None
+
+
+def test_engine_load_falls_back_to_the_other_libc(monkeypatch, tmp_path):
+    import ctypes
+    import needle
+    from needle.agent import fetch
+
+    good = tmp_path / "musl" / "libneedle.so"
+    good.parent.mkdir()
+    good.write_bytes(b"x")
+    monkeypatch.setattr(needle, "_library_path", lambda generation=2: str(tmp_path / "libneedle.so"))
+    monkeypatch.setattr(fetch, "other_libc_tag", lambda: "musllinux_1_2_x86_64")
+    monkeypatch.setattr(fetch, "fetch_library",
+                        lambda version=None, dest_dir=None, tag=None, generation=2: str(good))
+    loaded = {}
+
+    def fake_cdll(path):
+        if path.endswith("musl/libneedle.so"):
+            loaded["path"] = path
+            return "handle"
+        raise OSError("Error relocating libneedle.so: strtoll_l: symbol not found")
+
+    monkeypatch.setattr(ctypes, "CDLL", fake_cdll)
+    with pytest.warns(UserWarning, match="using the musllinux"):
+        assert needle._load_cdll(3) == "handle"
+    assert loaded["path"].endswith("musl/libneedle.so")

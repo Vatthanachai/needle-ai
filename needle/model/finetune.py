@@ -343,6 +343,48 @@ def merge_lora(params, lora, scale):
     return unflatten_dict(flat)
 
 
+def _calls_of(text):
+    """The tool calls in a rendered completion, or None when there is no call block."""
+    if TOOL_CALL_START not in text:
+        return []
+    body = text.split(TOOL_CALL_START, 1)[1].split(TOOL_CALL_END)[0]
+    try:
+        calls = json.loads(body)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(calls, list):
+        return None
+    return [(str(c.get("name")), json.dumps(c.get("arguments") or {}, sort_keys=True))
+            for c in calls if isinstance(c, dict)]
+
+
+def _score_quantised(model, params, lora, scale, tokenizer, data_path, n_val, rng_seed=0):
+    """Exact-call accuracy of the held-out split under the export's numerics.
+
+    The float model is not what ships: `needle build` writes CQ W4 weights, so a
+    fine-tune is scored through the same quantisation the archive uses.
+    """
+    import numpy as np
+    from .run import generate
+    from .quantize import cq_ste_params, WEIGHT_BITS
+
+    examples = list(read_examples(data_path))
+    if not examples:
+        return 0, 0
+    order = np.random.default_rng(rng_seed).permutation(len(examples))
+    held = [examples[i] for i in order[:n_val]]
+    merged = cq_ste_params(merge_lora(params, lora, scale), WEIGHT_BITS)
+    correct = 0
+    for example in held:
+        prompt, _ = render_example({**example, "answers": []})
+        text = generate(model, merged, tokenizer, prompt, max_new_tokens=96,
+                        temperature=0.0, stream=False)
+        want = _calls_of(TOOL_CALL_START + json.dumps(
+            example.get("answers", []), separators=(",", ":")) + TOOL_CALL_END)
+        correct += _calls_of(text) == want
+    return correct, len(held)
+
+
 def finetune_local(args, progress=None):
     import jax
     import jax.numpy as jnp
@@ -445,6 +487,13 @@ def finetune_local(args, progress=None):
             emit(f"  {'epoch':<9} {epoch + 1}/{args.epochs}  loss {last:.4f}  val {val:.4f}")
         else:
             emit(f"  {'epoch':<9} {epoch + 1}/{args.epochs}  loss {last:.4f}")
+
+    if n_val > 0 and getattr(args, "score", True):
+        correct, total = _score_quantised(model, params, lora, scale, tokenizer,
+                                          data_path, n_val, rng_seed=seed)
+        if total:
+            emit(f"  {'accuracy':<9} {correct}/{total} held-out calls exact, scored on the "
+                 f"W{WEIGHT_BITS} weights the archive ships")
 
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     out = args.out or os.path.join(args.checkpoint_dir, "needle_lora.safetensors")
